@@ -4,17 +4,32 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Scanner;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class Server {
 
+	public class ACTION {
+	    public final static int MSG = 0;
+	    public final static int LOGIN = 1;
+	    public final static int HIST = 2;
+	    public final static int UPDATE = 3;
+	};
+	
 	static private Server server;
 	
-	int port = 5560;
+	int serverPort = 5555;
+	int clientPort = 5561;
 	
-	private Server() {}
+	Map<String, Person> clients;
+	
+	private Server() {
+		clients = new HashMap<>();
+	}
 	
 	static public Server getInstance() {
 		if(server == null) {
@@ -29,14 +44,16 @@ public class Server {
     
     public void waitClient() {
     	try {
-            ServerSocket server = new ServerSocket(5555);
+            ServerSocket server = new ServerSocket(serverPort); // server port
             while(true) {
                 Socket socket = server.accept();
                 Scanner scanner = new Scanner(socket.getInputStream());
                 String clientSolicitation = scanner.nextLine();
+                System.out.println(clientSolicitation);
                 scanner.close();
+                String clientIp = socket.getInetAddress().getHostAddress();
                 JSONObject json = new JSONObject(clientSolicitation);
-                doAction(json);
+                doAction(json, clientIp);
             }
         } catch (IOException e) {
             System.out.println("deu ruim");
@@ -44,15 +61,24 @@ public class Server {
         }
     }
     
-    private void doAction(JSONObject json) {
+    private void doAction(JSONObject json, String ip) { // client ip 
+    	System.out.println(json.toString());
     	int action = json.getInt("action");
-    	String ip = json.getString("ip");
     	String phone = json.getString("phone");
     	String name = json.getString("name");
     	Person client = new Person(ip, phone, name);
     	switch (action) {
-    		case 0: // msg
+    		case ACTION.MSG: // msg
     			ArrayList<Person> friends = new ArrayList<>();
+    			JSONArray jsonFriends = json.getJSONArray("friends");
+    			for (int i = 0; i < jsonFriends.length(); i++) {
+    				JSONObject jFriend = (JSONObject) jsonFriends.get(i);
+    				String fPhone = jFriend.getString("phone");
+    				if(clients.containsKey(fPhone)) {
+    					Person p = clients.get(fPhone);
+    					friends.add(p);
+    				}
+    			}	
     			String title = json.getString("title");
     			String subtitle = json.getString("subtitle");
     			String content = json.getString("content");
@@ -60,13 +86,13 @@ public class Server {
     			Msg msg = new Msg(title, subtitle, content);
     			sendMsgs(msg, client, friends); 
     			break;
-    		case 1: // login
+    		case ACTION.LOGIN: // login
     			addClient(client);
     			break;
-    		case 2: // hist
+    		case ACTION.HIST: // hist
     			getHistory(client);
     			break;
-    		case 3: // update call
+    		case ACTION.UPDATE: // update call
     			int callId = json.getInt("callID");
     			updateCall(callId);
     	}
@@ -74,13 +100,19 @@ public class Server {
     
     private void sendMsgs(Msg msg, Person client, ArrayList<Person> friends) {
     	for (Person p : friends) {
-    		sendSocket(p.ip, msg.toJson().toString(), port);
+    		sendSocket(p.ip, msg.toJson().toString(), clientPort);
     		saveCall(); // TODO save in list calls
     	}
+    	sendSocket(client.ip, msg.toJson().toString(), clientPort);
     }
     
-    private void addClient(Person p) {
-    	// TODO verify if p is in client list, if it isn't add 
+    private void addClient(Person person) {
+    	// TODO verify if p is in client list, if it isn't add
+    	String key = person.phoneNumber;
+    	if(!clients.containsKey(key)) {
+    		clients.put(key, person);
+    	}
+    	System.out.println("Adicionou cliente novo"); // debug
     }
     
     private void getHistory(Person client) {
