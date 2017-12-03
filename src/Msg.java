@@ -13,9 +13,10 @@ public class Msg {
 	
 	public JSONObject toJson() {
 		JSONObject json = new JSONObject();
+		json.put("action", Server.ACTION.MSG);
 		json.put("title", title);
 		json.put("subtitle", subtitle);
-		json.put("content", "content");
+		json.put("content", content);
 		return json;
 	}
 }

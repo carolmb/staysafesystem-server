@@ -18,17 +18,42 @@ public class Server {
 	    public final static int LOGIN = 1;
 	    public final static int HIST = 2;
 	    public final static int UPDATE = 3;
+	    public final static int GUARDIANS = 4;
+	    public final static int PROTECTED = 5;
+	    
 	};
 	
 	static private Server server;
-	
+	private StorageManager<Map<String, Person>> clients;
+	private StorageManager<ArrayList<Pair<Person, Integer>>> history; // guardian and call
+	private StorageManager<ArrayList<Call>> calls; // all calls
+		
 	int serverPort = 5555;
 	int clientPort = 5561;
 	
-	Map<String, Person> clients;
+	Map<String, Person> clientsCache;
+	ArrayList<Pair<Person, Integer>> historyCache;
+	ArrayList<Call> callsCache;
 	
 	private Server() {
-		clients = new HashMap<>();
+		clients = new StorageManager<Map<String, Person>>("clients");
+		clientsCache = clients.retrive();
+		if(clientsCache == null) {
+			clientsCache = new HashMap<String, Person>();
+		}
+		printClients();
+		
+		history = new StorageManager<ArrayList<Pair<Person, Integer>>>("history");
+		historyCache = history.retrive();
+		if(historyCache == null) {
+			historyCache = new ArrayList<Pair<Person, Integer>>();
+		}
+		
+		calls = new StorageManager<ArrayList<Call>>("call");
+		callsCache = calls.retrive();
+		if(callsCache == null) {
+			callsCache = new ArrayList<Call>();
+		}
 	}
 	
 	static public Server getInstance() {
@@ -54,11 +79,29 @@ public class Server {
                 String clientIp = socket.getInetAddress().getHostAddress();
                 JSONObject json = new JSONObject(clientSolicitation);
                 doAction(json, clientIp);
+                clients.save(clientsCache);
+                history.save(historyCache);
+                calls.save(callsCache);
             }
         } catch (IOException e) {
             System.out.println("deu ruim");
         	e.printStackTrace();
         }
+    }
+    
+    public ArrayList<Person> JSONtoArray(JSONObject json) {
+    	ArrayList<Person> friends = new ArrayList<>();
+		JSONArray jsonFriends = json.getJSONArray("friends");
+		for (int i = 0; i < jsonFriends.length(); i++) {
+			JSONObject jFriend = (JSONObject) jsonFriends.get(i);
+			String fPhone = jFriend.getString("phone");
+			System.out.println(fPhone);
+			if(clientsCache.containsKey(fPhone)) {
+				Person p = clientsCache.get(fPhone);
+				friends.add(p);
+			}
+		}	
+		return friends;
     }
     
     private void doAction(JSONObject json, String ip) { // client ip 
@@ -67,18 +110,10 @@ public class Server {
     	String phone = json.getString("phone");
     	String name = json.getString("name");
     	Person client = new Person(ip, phone, name);
+    	ArrayList<Person> friends;
     	switch (action) {
     		case ACTION.MSG: // msg
-    			ArrayList<Person> friends = new ArrayList<>();
-    			JSONArray jsonFriends = json.getJSONArray("friends");
-    			for (int i = 0; i < jsonFriends.length(); i++) {
-    				JSONObject jFriend = (JSONObject) jsonFriends.get(i);
-    				String fPhone = jFriend.getString("phone");
-    				if(clients.containsKey(fPhone)) {
-    					Person p = clients.get(fPhone);
-    					friends.add(p);
-    				}
-    			}	
+    			friends = JSONtoArray(json);
     			String title = json.getString("title");
     			String subtitle = json.getString("subtitle");
     			String content = json.getString("content");
@@ -90,37 +125,110 @@ public class Server {
     			addClient(client);
     			break;
     		case ACTION.HIST: // hist
-    			getHistory(client);
+    			sendHistory(client);
     			break;
     		case ACTION.UPDATE: // update call
     			int callId = json.getInt("callID");
-    			updateCall(callId);
+    			boolean status = json.getBoolean("status");
+    			updateCall(client, callId, status);
+    			break;
+    		case ACTION.GUARDIANS: // save guardians of protected user
+    			friends = JSONtoArray(json);
+    			setFriends(client, friends);
+    			break;
+    		case ACTION.PROTECTED:
+    			sendProtectedFriends(client);
+    			
     	}
+    }
+    
+    private void sendProtectedFriends(Person client) {
+    	ArrayList<Person> protectedFriends = new ArrayList<Person>();
+    	for (Map.Entry<String, Person> person : clientsCache.entrySet()) {
+    		if(person.getValue().getFriends().contains(client)) {
+    			protectedFriends.add(person.getValue());
+    		}
+    	}
+    	JSONArray array = new JSONArray();
+    	for(Person person: protectedFriends) {
+    		JSONObject jsonPerson = person.toJson();
+    		array.put(jsonPerson);
+    	}
+    	JSONObject jsonMsg = new JSONObject();
+    	jsonMsg.put("action", ACTION.PROTECTED);
+    	jsonMsg.put("prot", array);
+    	sendSocket(client.ip, jsonMsg.toString(), clientPort);
+    }
+    
+    private void setFriends(Person client, ArrayList<Person> friends) {
+    	Person clientInList = clientsCache.get(client.phoneNumber);
+    	clientInList.setFriends(friends);
     }
     
     private void sendMsgs(Msg msg, Person client, ArrayList<Person> friends) {
     	for (Person p : friends) {
+    		System.out.println("Mensagem enviada para cliente " + p.toString());
     		sendSocket(p.ip, msg.toJson().toString(), clientPort);
-    		saveCall(); // TODO save in list calls
+    		int id = saveCall(msg, client); // TODO save in list calls
+    		saveHistory(p, id);
     	}
+    	//System.out.println(msg.toJson().toString());
     	sendSocket(client.ip, msg.toJson().toString(), clientPort);
     }
     
     private void addClient(Person person) {
     	// TODO verify if p is in client list, if it isn't add
     	String key = person.phoneNumber;
-    	if(!clients.containsKey(key)) {
-    		clients.put(key, person);
+    	if(!clientsCache.containsKey(key)) {
+    		clientsCache.put(key, person);
     	}
     	System.out.println("Adicionou cliente novo"); // debug
     }
     
-    private void getHistory(Person client) {
-    	// TODO read history and return all that client appeirs 
+    private void sendHistory(Person client) {
+    	ArrayList<Call> historyCalls = new ArrayList<Call>();
+    	for(Pair<Person, Integer> pair: historyCache) {
+    		if(pair.getElement0() == client) {
+    			int id = pair.getElement1();
+    			Call call = callsCache.get(id);
+    			historyCalls.add(call);
+    		}
+    	}
+    	
+    	for(Call call: callsCache) {
+    		if(call.getFrom() == client) {
+    			historyCalls.add(call);
+    		}
+    	}
+    	
+    	// TODO different histories to guardian view and protected user view
+    	JSONArray array = new JSONArray();
+    	for(Call call: historyCalls) {
+    		JSONObject jsonCall = call.toJson();
+    		array.put(jsonCall);
+    	}
+    	
+    	JSONObject jsonMsg = new JSONObject();
+    	jsonMsg.put("action", ACTION.HIST);
+    	jsonMsg.put("hist", array);
+    	sendSocket(client.ip, jsonMsg.toString(), clientPort);
     }
     
-    private void updateCall(int callId) {
+    private void updateCall(Person client, int callId, boolean status) {
     	// TODO update value and send new info to everybody
+    	Call call = callsCache.get(callId);
+    	call.setStatus(status);
+    	JSONObject jsonMsg = new JSONObject();
+		jsonMsg.put("action", ACTION.UPDATE);
+    	for(Pair<Person, Integer> pair: historyCache) {
+    		if(pair.getElement1() == callId && pair.getElement0() != client) {
+    			sendSocket(pair.getElement0().ip, jsonMsg.toString(), clientPort);
+    		}
+    	}
+    	Person from = call.getFrom();
+    	if(from != client) {
+    		sendSocket(from.ip, jsonMsg.toString(), clientPort);
+    	}
     }
     
     private void sendSocket(String ip, String content, int port) {
@@ -140,7 +248,21 @@ public class Server {
         }
     }
     
-    private void saveCall() {
-    	
+    private int saveCall(Msg msg, Person from) {
+    	Call call = new Call(msg, from);
+    	int id = callsCache.size();
+    	callsCache.add(call);
+    	return id;
+    }
+    
+    private void saveHistory(Person guardian, int id) {
+    	Pair<Person, Integer> pair = Pair.createPair(guardian, id);
+    	historyCache.add(pair);
+    }
+    
+    private void printClients() {
+    	for(Person p : clientsCache.values()) {
+    		System.out.println(p.toString());
+    	}
     }
 }
