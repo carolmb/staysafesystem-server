@@ -74,7 +74,7 @@ public class Server {
                 Socket socket = server.accept();
                 Scanner scanner = new Scanner(socket.getInputStream());
                 String clientSolicitation = scanner.nextLine();
-                System.out.println(clientSolicitation);
+                System.out.println("Mensagem do cliente: " + clientSolicitation);
                 scanner.close();
                 String clientIp = socket.getInetAddress().getHostAddress();
                 JSONObject json = new JSONObject(clientSolicitation);
@@ -90,22 +90,23 @@ public class Server {
     }
     
     public ArrayList<Person> JSONtoArray(JSONObject json) {
+    	System.out.println("JSONtoArray início");
     	ArrayList<Person> friends = new ArrayList<>();
 		JSONArray jsonFriends = json.getJSONArray("friends");
 		for (int i = 0; i < jsonFriends.length(); i++) {
 			JSONObject jFriend = (JSONObject) jsonFriends.get(i);
 			String fPhone = jFriend.getString("phone");
-			System.out.println(fPhone);
 			if(clientsCache.containsKey(fPhone)) {
+				System.out.println("Pessoa adicionada: " + fPhone);
 				Person p = clientsCache.get(fPhone);
 				friends.add(p);
 			}
-		}	
+		}
+		System.out.println("JSONtoArray fim");
 		return friends;
     }
     
     private void doAction(JSONObject json, String ip) { // client ip 
-    	System.out.println(json.toString());
     	int action = json.getInt("action");
     	String phone = json.getString("phone");
     	String name = json.getString("name");
@@ -145,7 +146,10 @@ public class Server {
     private void sendProtectedFriends(Person client) {
     	ArrayList<Person> protectedFriends = new ArrayList<Person>();
     	for (Map.Entry<String, Person> person : clientsCache.entrySet()) {
+    		System.out.println("Pessoa (telefone):" + person.getKey());
+    		printArrayList(person.getValue().getFriends());
     		if(person.getValue().getFriends().contains(client)) {
+    			System.out.println(person.getKey() + " foi adicionado a lista de protegidos");
     			protectedFriends.add(person.getValue());
     		}
     	}
@@ -161,6 +165,8 @@ public class Server {
     }
     
     private void setFriends(Person client, ArrayList<Person> friends) {
+    	System.out.println("Lista de guardiões de " + client.name + ": ");
+    	printArrayList(friends);
     	Person clientInList = clientsCache.get(client.phoneNumber);
     	clientInList.setFriends(friends);
     }
@@ -232,6 +238,7 @@ public class Server {
     }
     
     private void sendSocket(String ip, String content, int port) {
+    	System.out.println("IP: " + ip);
     	try {
             Socket soc = new Socket(ip, port);
             PrintWriter writer = new PrintWriter(soc.getOutputStream());
@@ -258,6 +265,12 @@ public class Server {
     private void saveHistory(Person guardian, int id) {
     	Pair<Person, Integer> pair = Pair.createPair(guardian, id);
     	historyCache.add(pair);
+    }
+    
+    private void printArrayList(ArrayList<Person> friends) {
+    	for(Person p : friends) {
+    		System.out.println(p.toString());
+    	}
     }
     
     private void printClients() {

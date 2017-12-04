@@ -1,10 +1,13 @@
+import java.io.Serializable;
 
 /*
  * Source: https://stackoverflow.com/questions/5303539/didnt-java-once-have-a-pair-class
  * */
-public class Pair<K, V> {
+public class Pair<K, V>  implements Serializable {
 
-    private final K element0;
+    private static final long serialVersionUID = 1L;
+	
+	private final K element0;
     private final V element1;
 
     public static <K, V> Pair<K, V> createPair(K element0, V element1) {
